@@ -183,14 +183,14 @@ async def main():
             await event.edit(news_text, parse_mode='markdown')
         await event.answer("📰 تم عرض آخر الأخبار", alert=True)
 
-    # ========== نقل الأخبار من القنوات المصدر ==========
+    # ========== نقل الأخبار من القنوات المصدر (نسخة نهائية مع تصحيح الألبومات) ==========
     @user_client.on(events.NewMessage)
     async def forward_to_bot(event):
         global messages_count, latest_messages
 
-        # التأكد من أن الرسالة من قناة مدرجة في القائمة
-        if event.chat_id not in SOURCE_CHATS:
-            return
+        # ❌ تم إزالة الفلتر نهائياً - البوت يقرأ من جميع القنوات
+        # if event.chat_id not in SOURCE_CHATS:
+        #     return
 
         try:
             msg_key = f"{event.chat_id}_{event.message.id}"
