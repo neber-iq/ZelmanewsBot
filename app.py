@@ -8,6 +8,7 @@ from telethon import TelegramClient, events
 from telethon.tl.custom import Button
 from flask import Flask
 import threading
+import json
 
 # تحميل التوكن من متغيرات البيئة (آمن)
 load_dotenv()
@@ -32,7 +33,23 @@ TARGET_CHAT = -1004368707352
 HASHTAG = '\n\n#جمهورية_الزلم_الاخبارية'
 CHANNEL_MENTION = '\n\n@Zelma_News'
 
-sent_cache = set()
+# ========== نظام منع التكرار المتطور ==========
+CACHE_FILE = 'sent_cache.json'
+
+def load_cache():
+    try:
+        with open(CACHE_FILE, 'r') as f:
+            return set(json.load(f))
+    except:
+        return set()
+
+def save_cache(cache):
+    with open(CACHE_FILE, 'w') as f:
+        json.dump(list(cache), f)
+
+sent_cache = load_cache()
+# =========================================
+
 messages_count = 0
 start_time = datetime.now()
 latest_messages = []
@@ -52,48 +69,29 @@ def run_flask():
 def clean_text(text):
     if not text:
         return ''
-
-    # حذف جميع أنواع الروابط (حتى .net بدون http)
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'www\.\S+', '', text)
     text = re.sub(r'\b[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(/\S*)?', '', text)
-    
-    # حذف النطاقات الشهيرة
     text = re.sub(r'\b[a-zA-Z0-9-]+\.(com|net|org|io|tv|me|app|xyz|info|online|site|tech|store|blog|co)\b', '', text)
-    
-    # حذف روابط تيليجرام
     text = re.sub(r't\.me/\S+', '', text)
     text = re.sub(r'telegram\.me/\S+', '', text)
-    
-    # حذف الهاشتاجات والمنشنات
     text = re.sub(r'#[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
     text = re.sub(r'@[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
-    
-    # حذف جملة الاشتراك (وأي نص يشبهها)
     text = re.sub(r'اشترك الآن في خدمة نجوم الرابعة.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'اشترك الآن.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'للاشتراك.*', '', text, flags=re.IGNORECASE)
-    
-    # حذف أي نص يبدأ بـ "من خلال الرابط" أو يحتوي على كلمة "رابط"
     text = re.sub(r'من خلال الرابط\s*\S*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'عبر الرابط\s*\S*', '', text, flags=re.IGNORECASE)
-    
-    # تنظيف المسافات والفواصل الزائدة
     text = re.sub(r'\s+', ' ', text).strip()
-    
-    # حذف الشرطات الزائدة في بداية أو نهاية النص
     text = re.sub(r'^[\s\-—]+', '', text)
     text = re.sub(r'[\s\-—]+$', '', text)
-    
     return text
 
 async def main():
     global messages_count, start_time, latest_messages
     
-    # تشغيل Flask في خلفية
     threading.Thread(target=run_flask, daemon=True).start()
     
-    # إنشاء العميلين
     user_client = TelegramClient('user_session', API_ID, API_HASH)
     bot_client = await TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
@@ -154,6 +152,7 @@ async def main():
         elif data == "restart_bot":
             await event.answer("🔄 جاري إعادة التشغيل...", alert=True)
             sent_cache.clear()
+            save_cache(sent_cache)
             messages_count = 0
             start_time = datetime.now()
             latest_messages.clear()
@@ -183,28 +182,69 @@ async def main():
             await event.edit(news_text, parse_mode='markdown')
         await event.answer("📰 تم عرض آخر الأخبار", alert=True)
 
-    # ========== نقل الأخبار من القنوات المصدر (نسخة نهائية مع تصحيح الألبومات) ==========
+    # ========== معالج الألبومات (مجموعات الصور) ==========
+    @user_client.on(events.Album)
+    async def handle_album(event):
+        global messages_count, latest_messages
+        
+        # التأكد من أن الألبوم من قناة مدرجة في القائمة
+        if event.chat_id not in SOURCE_CHATS:
+            return
+            
+        try:
+            # مفتاح فريد للألبوم (نستخدم معرف أول رسالة في الألبوم)
+            album_key = f"{event.chat_id}_{event.messages[0].id}"
+            
+            # منع التكرار
+            if album_key in sent_cache:
+                return
+            sent_cache.add(album_key)
+            save_cache(sent_cache)
+
+            # تنظيف النص من أول رسالة (غالباً ما يحتوي الكابتشن)
+            caption = event.messages[0].text if event.messages and event.messages[0].text else ''
+            cleaned = clean_text(caption)
+            final_text = cleaned + HASHTAG + CHANNEL_MENTION if cleaned else HASHTAG + CHANNEL_MENTION
+
+            # إعادة توجيه الألبوم كامل
+            await bot_client.send_file(
+                TARGET_CHAT,
+                file=event.messages,
+                caption=final_text
+            )
+
+            messages_count += 1
+            print(f"✅ تم نشر ألبوم من: {event.chat_id}")
+
+        except Exception as e:
+            print(f"❌ خطأ في الألبوم: {e}")
+
+    # ========== معالج الرسائل العادية ==========
     @user_client.on(events.NewMessage)
     async def forward_to_bot(event):
         global messages_count, latest_messages
 
-        # ❌ تم إزالة الفلتر نهائياً - البوت يقرأ من جميع القنوات
-        # if event.chat_id not in SOURCE_CHATS:
-        #     return
+        # تجاهل الرسائل التي هي جزء من ألبوم (سيتم معالجتها بواسطة events.Album)
+        if event.grouped_id:
+            return
+
+        # التأكد من أن الرسالة من قناة مدرجة في القائمة
+        if event.chat_id not in SOURCE_CHATS:
+            return
 
         try:
             msg_key = f"{event.chat_id}_{event.message.id}"
+            
+            # منع التكرار
             if msg_key in sent_cache:
                 return
             sent_cache.add(msg_key)
-            if len(sent_cache) > 300:
-                sent_cache.pop()
+            save_cache(sent_cache)
 
             raw_text = event.message.text or event.message.caption or ''
             cleaned = clean_text(raw_text)
             final_text = cleaned + HASHTAG + CHANNEL_MENTION if cleaned else HASHTAG + CHANNEL_MENTION
 
-            # تخزين آخر الأخبار لعرضها
             if cleaned:
                 news_entry = {
                     'text': cleaned[:200] + ('...' if len(cleaned) > 200 else ''),
@@ -214,42 +254,16 @@ async def main():
                 if len(latest_messages) > 20:
                     latest_messages.pop(0)
 
-            # ====== معالجة الميديا (صور، فيديوهات) ======
+            # معالجة الميديا الفردية
             if event.message.media:
-                # إذا كان الخبر يحتوي على ألبوم (Media Group)
-                if event.message.grouped_id:
-                    # جلب جميع رسائل الألبوم
-                    messages = await user_client.get_messages(
-                        event.chat_id,
-                        limit=10,
-                        min_id=event.message.id - 10,
-                        max_id=event.message.id + 10
-                    )
-                    # فلترة رسائل الألبوم فقط
-                    album_messages = [msg for msg in messages if msg.grouped_id == event.message.grouped_id]
-                    
-                    # إعادة توجيه جميع رسائل الألبوم
-                    for msg in album_messages:
-                        await bot_client.forward_messages(
-                            TARGET_CHAT,
-                            messages=msg.id,
-                            from_peer=event.chat_id
-                        )
-                    
-                    # إرسال النص المنظف بعد الصور
-                    if final_text:
-                        await bot_client.send_message(TARGET_CHAT, final_text)
-                else:
-                    # صورة أو فيديو فردي
-                    await bot_client.forward_messages(
-                        TARGET_CHAT,
-                        messages=event.message.id,
-                        from_peer=event.chat_id
-                    )
-                    if final_text:
-                        await bot_client.send_message(TARGET_CHAT, final_text)
+                await bot_client.forward_messages(
+                    TARGET_CHAT,
+                    messages=event.message.id,
+                    from_peer=event.chat_id
+                )
+                if final_text:
+                    await bot_client.send_message(TARGET_CHAT, final_text)
             else:
-                # رسالة نصية فقط
                 await bot_client.send_message(TARGET_CHAT, final_text)
 
             messages_count += 1
@@ -258,20 +272,15 @@ async def main():
         except Exception as e:
             print(f"❌ خطأ من القناة {event.chat_id}: {e}")
 
-    # ========== اختبار وصول الرسائل من جميع القنوات ==========
+    # ========== اختبار وصول الرسائل ==========
     @user_client.on(events.NewMessage)
     async def test_all_messages(event):
-        # طباعة أي رسالة تصل من أي قناة (للتشخيص)
         if event.chat_id in SOURCE_CHATS:
             print(f"📩 واصلتني رسالة من قناة مصدر: {event.chat_id}")
-        else:
-            print(f"📩 واصلتني رسالة من قناة أخرى: {event.chat_id}")
 
     print("🚀 شغال...")
     await user_client.start()
     print("✅ البوت جاهز وينقل الأخبار...")
-    print("💡 أرسل /start للبوت @Zelma_News_Bot عشان تظهر الأزرار")
-    print("💡 أرسل /latest عشان تشوف آخر الأخبار المستلمة")
     await user_client.run_until_disconnected()
 
 if __name__ == '__main__':
