@@ -180,17 +180,19 @@ async def main():
                 if len(latest_messages) > 20:
                     latest_messages.pop(0)
 
+            # ====== معالجة الميديا (صور، فيديوهات) ======
             if event.message.media:
-                file_bytes = io.BytesIO()
-                await user_client.download_media(event.message, file=file_bytes)
-                file_bytes.seek(0)
-                await bot_client.send_file(
+                # إعادة توجيه الميديا مباشرة بدون تحميل
+                await bot_client.forward_messages(
                     TARGET_CHAT,
-                    file_bytes,
-                    caption=final_text,
-                    force_document=False
+                    messages=event.message,
+                    from_peer=event.chat_id
                 )
+                # إرسال النص المنظف كرسالة منفصلة
+                if final_text:
+                    await bot_client.send_message(TARGET_CHAT, final_text)
             else:
+                # رسالة نصية فقط
                 await bot_client.send_message(TARGET_CHAT, final_text)
 
             messages_count += 1
