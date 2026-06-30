@@ -6,6 +6,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.tl.custom import Button
+from flask import Flask
+import threading
 
 # تحميل التوكن من متغيرات البيئة (آمن)
 load_dotenv()
@@ -34,6 +36,18 @@ messages_count = 0
 start_time = datetime.now()
 latest_messages = []
 
+# ========== Flask للـ Health Check ==========
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+@flask_app.route('/ping')
+def ping():
+    return "Bot is alive! ✅"
+
+def run_flask():
+    flask_app.run(host='0.0.0.0', port=10000)
+# ===========================================
+
 def clean_text(text):
     if not text: return ''
     text = re.sub(r'https?://\S+', '', text)
@@ -45,6 +59,9 @@ def clean_text(text):
 
 async def main():
     global messages_count, start_time, latest_messages
+    
+    # تشغيل Flask في خلفية
+    threading.Thread(target=run_flask, daemon=True).start()
     
     # إنشاء العميلين
     user_client = TelegramClient('user_session', API_ID, API_HASH)
