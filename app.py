@@ -9,6 +9,7 @@ from telethon.tl.custom import Button
 from flask import Flask
 import threading
 import json
+import hashlib
 import requests
 from PIL import Image
 
@@ -25,12 +26,12 @@ SOURCE_CHATS = [
     -1001006840823, -1001370990432, -1001033300734, -1002016299106,
     -1001364992115, -1001680998191, -1001048208601, -1001116498519,
     -1002159277098, -1001491094605, -1001002129373,
-    # -1001002400952,  # تم حذفها
-    # -1001602192088,  # تم حذفها
     -1001110380808, -1001822939306, -1001317489146,
     -1001032666411, -1001336945221, -1001670244580, -1002062736232,
     -1002189724818, -1001778074725,
-    -1001765747111
+    -1001765747111,
+    -1003613542415,
+    -1001429963311
 ]
 
 # قناتك الهدف
@@ -38,9 +39,9 @@ TARGET_CHAT = -1004368707352
 HASHTAG = '\n\n#جمهورية_الزلم_الاخبارية'
 CHANNEL_MENTION = '\n\n@Zelma_News'
 
-# ========== رابط الصورة للعلامة المائية ==========
+# ========== العلامة المائية ==========
 WATERMARK_IMAGE_URL = "https://i.imgur.com/26EA7uJ.png"
-# ===========================================
+# ===================================
 
 # ========== نظام منع التكرار ==========
 CACHE_FILE = 'sent_cache.json'
@@ -57,13 +58,14 @@ def save_cache(cache):
         json.dump(list(cache), f)
 
 sent_cache = load_cache()
+print(f"📂 تم تحميل {len(sent_cache)} خبر من الكاش")
 # =========================================
 
 messages_count = 0
 start_time = datetime.now()
 latest_messages = []
 
-# ========== Flask للـ Health Check ==========
+# ========== Flask ==========
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
@@ -95,6 +97,13 @@ def clean_text(text):
     text = re.sub(r'^[\s\-—]+', '', text)
     text = re.sub(r'[\s\-—]+$', '', text)
     return text
+
+def get_text_hash(text):
+    """إنشاء هاش للنص لمنع التكرار"""
+    if not text:
+        return None
+    cleaned = re.sub(r'\s+', ' ', text).strip()
+    return hashlib.md5(cleaned.encode('utf-8')).hexdigest()
 
 # ========== تحميل العلامة المائية ==========
 def download_watermark(url):
@@ -138,7 +147,6 @@ async def process_media(event, final_text):
     try:
         watermark_path = download_watermark(WATERMARK_IMAGE_URL)
         if not watermark_path:
-            print("⚠️ فشل تحميل العلامة المائية")
             return None
         
         file_path = await event.message.download_media()
@@ -174,6 +182,7 @@ async def main():
     user_client = TelegramClient('user_session', API_ID, API_HASH)
     bot_client = await TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
+    # ========== أوامر البوت ==========
     @bot_client.on(events.NewMessage(pattern='/start'))
     async def start_command(event):
         buttons = [
@@ -186,6 +195,7 @@ async def main():
         await event.reply(
             "🤖 **بوت جمهورية الزلم الإخباري**\n\n"
             "أهلاً بك! البوت شغال وينقل الأخبار مع العلامة المائية.\n\n"
+            f"📡 عدد القنوات المصدر: {len(SOURCE_CHATS)}\n\n"
             "📌 استخدم الأزرار أدناه للتحكم والفحص:",
             buttons=buttons,
             parse_mode='markdown'
@@ -257,6 +267,7 @@ async def main():
             await event.edit(news_text, parse_mode='markdown')
         await event.answer("📰 تم عرض آخر الأخبار", alert=True)
 
+    # ========== معالج الألبومات ==========
     @user_client.on(events.Album)
     async def handle_album(event):
         global messages_count, latest_messages, sent_cache
@@ -265,10 +276,6 @@ async def main():
             return
             
         try:
-            # تجاهل القنوات المحذوفة
-            if event.chat_id in [-1001002400952, -1001602192088]:
-                return
-                
             album_key = f"album_{event.chat_id}_{event.messages[0].id}"
             if album_key in sent_cache:
                 return
@@ -278,6 +285,23 @@ async def main():
             caption = event.messages[0].text if event.messages and event.messages[0].text else ''
             cleaned = clean_text(caption)
             final_text = cleaned + HASHTAG + CHANNEL_MENTION if cleaned else HASHTAG + CHANNEL_MENTION
+
+            if cleaned:
+                text_hash = get_text_hash(cleaned)
+                if text_hash:
+                    hash_key = f"hash_{text_hash}"
+                    if hash_key in sent_cache:
+                        return
+                    sent_cache.add(hash_key)
+                    save_cache(sent_cache)
+                
+                news_entry = {
+                    'text': cleaned[:200] + ('...' if len(cleaned) > 200 else ''),
+                    'link': f"https://t.me/c/{str(event.chat_id)[4:]}/{event.messages[0].id}" if event.chat_id else None
+                }
+                latest_messages.append(news_entry)
+                if len(latest_messages) > 20:
+                    latest_messages.pop(0)
 
             watermarked_files = []
             for msg in event.messages:
@@ -308,6 +332,7 @@ async def main():
         except Exception as e:
             print(f"❌ خطأ في الألبوم: {e}")
 
+    # ========== معالج الرسائل العادية ==========
     @user_client.on(events.NewMessage)
     async def forward_to_bot(event):
         global messages_count, latest_messages, sent_cache
@@ -321,20 +346,27 @@ async def main():
         if event.chat_id not in SOURCE_CHATS:
             return
 
-        # تجاهل القنوات المحذوفة
-        if event.chat_id in [-1001002400952, -1001602192088]:
-            return
-
         try:
-            msg_key = f"{event.chat_id}_{event.message.id}"
+            raw_text = event.message.text or event.message.caption or ''
+            cleaned = clean_text(raw_text)
             
+            # ====== منع التكرار النصي ======
+            if cleaned:
+                text_hash = get_text_hash(cleaned)
+                if text_hash:
+                    hash_key = f"hash_{text_hash}"
+                    if hash_key in sent_cache:
+                        print(f"⚠️ تم تجاهل خبر مكرر: {cleaned[:50]}...")
+                        return
+                    sent_cache.add(hash_key)
+                    save_cache(sent_cache)
+            
+            msg_key = f"{event.chat_id}_{event.message.id}"
             if msg_key in sent_cache:
                 return
             sent_cache.add(msg_key)
             save_cache(sent_cache)
 
-            raw_text = event.message.text or event.message.caption or ''
-            cleaned = clean_text(raw_text)
             final_text = cleaned + HASHTAG + CHANNEL_MENTION if cleaned else HASHTAG + CHANNEL_MENTION
 
             if cleaned:
