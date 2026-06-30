@@ -25,7 +25,8 @@ SOURCE_CHATS = [
     -1002159277098, -1001491094605, -1001002129373, -1001002400952,
     -1001602192088, -1001110380808, -1001822939306, -1001317489146,
     -1001032666411, -1001336945221, -1001670244580, -1002062736232,
-    -1002189724818, -1001778074725
+    -1002189724818, -1001778074725,
+    -1001765747111
 ]
 
 # قناتك الهدف
@@ -33,7 +34,7 @@ TARGET_CHAT = -1004368707352
 HASHTAG = '\n\n#جمهورية_الزلم_الاخبارية'
 CHANNEL_MENTION = '\n\n@Zelma_News'
 
-# ========== نظام منع التكرار المتطور ==========
+# ========== نظام منع التكرار ==========
 CACHE_FILE = 'sent_cache.json'
 
 def load_cache():
@@ -95,7 +96,7 @@ async def main():
     user_client = TelegramClient('user_session', API_ID, API_HASH)
     bot_client = await TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-    # ========== أمر /start ==========
+    # ========== أوامر البوت ==========
     @bot_client.on(events.NewMessage(pattern='/start'))
     async def start_command(event):
         buttons = [
@@ -107,13 +108,12 @@ async def main():
         ]
         await event.reply(
             "🤖 **بوت جمهورية الزلم الإخباري**\n\n"
-            "أهلاً بك! البوت شغال وينقل الأخبار من 22 قناة إلى قناتك.\n\n"
+            "أهلاً بك! البوت شغال وينقل الأخبار من 23 قناة إلى قناتك.\n\n"
             "📌 استخدم الأزرار أدناه للتحكم والفحص:",
             buttons=buttons,
             parse_mode='markdown'
         )
 
-    # ========== أمر /latest ==========
     @bot_client.on(events.NewMessage(pattern='/latest'))
     async def latest_command(event):
         await send_latest_news(event)
@@ -187,26 +187,21 @@ async def main():
     async def handle_album(event):
         global messages_count, latest_messages
         
-        # التأكد من أن الألبوم من قناة مدرجة في القائمة
         if event.chat_id not in SOURCE_CHATS:
             return
             
         try:
-            # مفتاح فريد للألبوم (نستخدم معرف أول رسالة في الألبوم)
             album_key = f"{event.chat_id}_{event.messages[0].id}"
-            
-            # منع التكرار
             if album_key in sent_cache:
                 return
             sent_cache.add(album_key)
             save_cache(sent_cache)
 
-            # تنظيف النص من أول رسالة (غالباً ما يحتوي الكابتشن)
             caption = event.messages[0].text if event.messages and event.messages[0].text else ''
             cleaned = clean_text(caption)
             final_text = cleaned + HASHTAG + CHANNEL_MENTION if cleaned else HASHTAG + CHANNEL_MENTION
 
-            # إعادة توجيه الألبوم كامل
+            # تحميل الألبوم كملف مؤقت ثم إرساله
             await bot_client.send_file(
                 TARGET_CHAT,
                 file=event.messages,
@@ -219,23 +214,23 @@ async def main():
         except Exception as e:
             print(f"❌ خطأ في الألبوم: {e}")
 
-    # ========== معالج الرسائل العادية ==========
+    # ========== معالج الرسائل العادية (فقط من القنوات المصدر) ==========
     @user_client.on(events.NewMessage)
     async def forward_to_bot(event):
         global messages_count, latest_messages
 
-        # تجاهل الرسائل التي هي جزء من ألبوم (سيتم معالجتها بواسطة events.Album)
+        if event.out:
+            return
+            
         if event.grouped_id:
             return
 
-        # التأكد من أن الرسالة من قناة مدرجة في القائمة
         if event.chat_id not in SOURCE_CHATS:
             return
 
         try:
             msg_key = f"{event.chat_id}_{event.message.id}"
             
-            # منع التكرار
             if msg_key in sent_cache:
                 return
             sent_cache.add(msg_key)
@@ -254,15 +249,37 @@ async def main():
                 if len(latest_messages) > 20:
                     latest_messages.pop(0)
 
-            # معالجة الميديا الفردية
             if event.message.media:
-                await bot_client.forward_messages(
-                    TARGET_CHAT,
-                    messages=event.message.id,
-                    from_peer=event.chat_id
-                )
-                if final_text:
-                    await bot_client.send_message(TARGET_CHAT, final_text)
+                # الحل النهائي للميديا: تحميل وإعادة إرسال
+                try:
+                    file_path = await event.message.download_media()
+                    if file_path:
+                        await bot_client.send_file(
+                            TARGET_CHAT,
+                            file_path,
+                            caption=final_text
+                        )
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                    else:
+                        # إذا فشل التحميل، نحاول إعادة التوجيه
+                        await bot_client.forward_messages(
+                            TARGET_CHAT,
+                            messages=event.message.id,
+                            from_peer=event.chat_id
+                        )
+                        if final_text:
+                            await bot_client.send_message(TARGET_CHAT, final_text)
+                except Exception as e:
+                    print(f"❌ خطأ في تحميل الميديا: {e}")
+                    # محاولة إعادة التوجيه كحل أخير
+                    await bot_client.forward_messages(
+                        TARGET_CHAT,
+                        messages=event.message.id,
+                        from_peer=event.chat_id
+                    )
+                    if final_text:
+                        await bot_client.send_message(TARGET_CHAT, final_text)
             else:
                 await bot_client.send_message(TARGET_CHAT, final_text)
 
@@ -275,7 +292,7 @@ async def main():
     # ========== اختبار وصول الرسائل ==========
     @user_client.on(events.NewMessage)
     async def test_all_messages(event):
-        if event.chat_id in SOURCE_CHATS:
+        if event.chat_id in SOURCE_CHATS and not event.out:
             print(f"📩 واصلتني رسالة من قناة مصدر: {event.chat_id}")
 
     print("🚀 شغال...")
