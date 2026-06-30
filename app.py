@@ -50,7 +50,10 @@ def run_flask():
 
 def clean_text(text):
     if not text: return ''
-    text = re.sub(r'https?://\S+', '', text)
+    # حذف الروابط (بما فيها اللي بدون http)
+    text = re.sub(r'https?://\S+', '', text)          # روابط تبدأ بـ http
+    text = re.sub(r'www\.\S+', '', text)              # روابط تبدأ بـ www
+    text = re.sub(r'\b[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(/\S*)?', '', text)  # أي رابط مثل domain.com
     text = re.sub(r't\.me/\S+', '', text)
     text = re.sub(r'#[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
     text = re.sub(r'@[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
