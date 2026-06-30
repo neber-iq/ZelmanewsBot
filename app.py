@@ -9,6 +9,10 @@ from telethon.tl.custom import Button
 from flask import Flask
 import threading
 import json
+import requests
+from PIL import Image
+import cv2
+import numpy as np
 
 # تحميل التوكن من متغيرات البيئة (آمن)
 load_dotenv()
@@ -34,31 +38,25 @@ TARGET_CHAT = -1004368707352
 HASHTAG = '\n\n#جمهورية_الزلم_الاخبارية'
 CHANNEL_MENTION = '\n\n@Zelma_News'
 
-# ========== نظام منع التكرار المتقدم (يحفظ في ملف JSON) ==========
+# ========== رابط الصورة للعلامة المائية ==========
+WATERMARK_IMAGE_URL = "https://i.imgur.com/26EA7uJ.png"
+# ===========================================
+
+# ========== نظام منع التكرار ==========
 CACHE_FILE = 'sent_cache.json'
-MAX_CACHE_SIZE = 500  # حفظ آخر 500 خبر فقط
 
 def load_cache():
     try:
-        with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                return set(data)
-            return set()
-    except (FileNotFoundError, json.JSONDecodeError):
+        with open(CACHE_FILE, 'r') as f:
+            return set(json.load(f))
+    except:
         return set()
 
 def save_cache(cache):
-    try:
-        # تحويل set إلى list قبل الحفظ
-        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(list(cache), f, ensure_ascii=False)
-    except Exception as e:
-        print(f"⚠️ خطأ في حفظ الكاش: {e}")
+    with open(CACHE_FILE, 'w') as f:
+        json.dump(list(cache), f)
 
-# تحميل الكاش عند بدء التشغيل
 sent_cache = load_cache()
-print(f"📂 تم تحميل {len(sent_cache)} خبر من الكاش")
 # =========================================
 
 messages_count = 0
@@ -98,6 +96,85 @@ def clean_text(text):
     text = re.sub(r'[\s\-—]+$', '', text)
     return text
 
+# ========== تحميل العلامة المائية من الرابط ==========
+def download_watermark(url):
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            watermark_path = "watermark.png"
+            with open(watermark_path, 'wb') as f:
+                f.write(response.content)
+            return watermark_path
+        return None
+    except Exception as e:
+        print(f"⚠️ خطأ في تحميل العلامة المائية: {e}")
+        return None
+
+# ========== دالة إضافة العلامة المائية ==========
+def add_watermark_to_image(image_path, output_path, watermark_path):
+    try:
+        base_img = Image.open(image_path).convert("RGBA")
+        watermark = Image.open(watermark_path).convert("RGBA")
+        
+        # تغيير حجم العلامة المائية (20% من الصورة الأصلية)
+        width, height = base_img.size
+        wm_width = int(width * 0.15)
+        wm_height = int(watermark.height * (wm_width / watermark.width))
+        watermark = watermark.resize((wm_width, wm_height), Image.LANCZOS)
+        
+        # موقع العلامة (أسفل اليمين)
+        position = (width - wm_width - 20, height - wm_height - 20)
+        
+        # دمج الصور
+        transparent = Image.new('RGBA', base_img.size, (0, 0, 0, 0))
+        transparent.paste(base_img, (0, 0))
+        transparent.paste(watermark, position, watermark)
+        
+        transparent.convert("RGB").save(output_path, "JPEG", quality=95)
+        return True
+    except Exception as e:
+        print(f"⚠️ خطأ في إضافة العلامة المائية: {e}")
+        return False
+
+# ========== معالجة الميديا ==========
+async def process_media(event, final_text):
+    try:
+        # تحميل العلامة المائية
+        watermark_path = download_watermark(WATERMARK_IMAGE_URL)
+        if not watermark_path:
+            print("⚠️ فشل تحميل العلامة المائية")
+            return None
+        
+        # تحميل الميديا الأصلية
+        file_path = await event.message.download_media()
+        if not file_path:
+            return None
+        
+        file_ext = os.path.splitext(file_path)[1].lower()
+        output_path = f"watermarked_{os.path.basename(file_path)}"
+        
+        # معالجة الصور فقط (الفيديو يحتاج ffmpeg)
+        if file_ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff']:
+            success = add_watermark_to_image(file_path, output_path, watermark_path)
+        else:
+            # للفيديو نرسله بدون علامة (أو نضيفها لاحقاً)
+            os.rename(file_path, output_path)
+            success = True
+        
+        # حذف الملف الأصلي
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        if os.path.exists(watermark_path):
+            os.remove(watermark_path)
+        
+        if success and os.path.exists(output_path):
+            return output_path
+        return None
+    except Exception as e:
+        print(f"⚠️ خطأ في معالجة الميديا: {e}")
+        return None
+
+# ========== باقي الكود (الأوامر، الألبومات، إلخ) ==========
 async def main():
     global messages_count, start_time, latest_messages, sent_cache
     
@@ -106,7 +183,7 @@ async def main():
     user_client = TelegramClient('user_session', API_ID, API_HASH)
     bot_client = await TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-    # ========== أوامر البوت ==========
+    # أوامر البوت (كما هي)
     @bot_client.on(events.NewMessage(pattern='/start'))
     async def start_command(event):
         buttons = [
@@ -118,7 +195,7 @@ async def main():
         ]
         await event.reply(
             "🤖 **بوت جمهورية الزلم الإخباري**\n\n"
-            "أهلاً بك! البوت شغال وينقل الأخبار من 23 قناة إلى قناتك.\n\n"
+            "أهلاً بك! البوت شغال وينقل الأخبار مع العلامة المائية.\n\n"
             "📌 استخدم الأزرار أدناه للتحكم والفحص:",
             buttons=buttons,
             parse_mode='markdown'
@@ -128,7 +205,6 @@ async def main():
     async def latest_command(event):
         await send_latest_news(event)
 
-    # ========== معالجة أزرار البوت ==========
     @bot_client.on(events.CallbackQuery)
     async def callback_handler(event):
         global messages_count, start_time, latest_messages
@@ -168,7 +244,6 @@ async def main():
             latest_messages.clear()
             await event.edit("🔄 **تم إعادة تشغيل البوت بنجاح!**\n\nتم مسح الذاكرة المؤقتة وإعادة ضبط العداد." + HASHTAG + CHANNEL_MENTION, parse_mode='markdown')
 
-    # ========== دالة إرسال آخر الأخبار ==========
     async def send_latest_news(event):
         if not latest_messages:
             await event.edit("📰 **لا توجد أخبار حديثة**\n\nالبوت لم يستقبل أي أخبار جديدة من القنوات المصدر بعد." + HASHTAG + CHANNEL_MENTION, parse_mode='markdown')
@@ -192,7 +267,7 @@ async def main():
             await event.edit(news_text, parse_mode='markdown')
         await event.answer("📰 تم عرض آخر الأخبار", alert=True)
 
-    # ========== معالج الألبومات (مجموعات الصور) ==========
+    # معالج الألبومات
     @user_client.on(events.Album)
     async def handle_album(event):
         global messages_count, latest_messages, sent_cache
@@ -211,11 +286,28 @@ async def main():
             cleaned = clean_text(caption)
             final_text = cleaned + HASHTAG + CHANNEL_MENTION if cleaned else HASHTAG + CHANNEL_MENTION
 
-            await bot_client.send_file(
-                TARGET_CHAT,
-                file=event.messages,
-                caption=final_text
-            )
+            watermarked_files = []
+            for msg in event.messages:
+                if msg.media:
+                    processed = await process_media(msg, final_text)
+                    if processed:
+                        watermarked_files.append(processed)
+            
+            if watermarked_files:
+                await bot_client.send_file(
+                    TARGET_CHAT,
+                    watermarked_files,
+                    caption=final_text
+                )
+                for f in watermarked_files:
+                    if os.path.exists(f):
+                        os.remove(f)
+            else:
+                await bot_client.send_file(
+                    TARGET_CHAT,
+                    file=event.messages,
+                    caption=final_text
+                )
 
             messages_count += 1
             print(f"✅ تم نشر ألبوم من: {event.chat_id}")
@@ -223,7 +315,7 @@ async def main():
         except Exception as e:
             print(f"❌ خطأ في الألبوم: {e}")
 
-    # ========== معالج الرسائل العادية ==========
+    # معالج الرسائل العادية
     @user_client.on(events.NewMessage)
     async def forward_to_bot(event):
         global messages_count, latest_messages, sent_cache
@@ -259,26 +351,16 @@ async def main():
                     latest_messages.pop(0)
 
             if event.message.media:
-                try:
-                    file_path = await event.message.download_media()
-                    if file_path:
-                        await bot_client.send_file(
-                            TARGET_CHAT,
-                            file_path,
-                            caption=final_text
-                        )
-                        if os.path.exists(file_path):
-                            os.remove(file_path)
-                    else:
-                        await bot_client.forward_messages(
-                            TARGET_CHAT,
-                            messages=event.message.id,
-                            from_peer=event.chat_id
-                        )
-                        if final_text:
-                            await bot_client.send_message(TARGET_CHAT, final_text)
-                except Exception as e:
-                    print(f"❌ خطأ في تحميل الميديا: {e}")
+                processed_file = await process_media(event, final_text)
+                if processed_file:
+                    await bot_client.send_file(
+                        TARGET_CHAT,
+                        processed_file,
+                        caption=final_text
+                    )
+                    if os.path.exists(processed_file):
+                        os.remove(processed_file)
+                else:
                     await bot_client.forward_messages(
                         TARGET_CHAT,
                         messages=event.message.id,
@@ -295,7 +377,6 @@ async def main():
         except Exception as e:
             print(f"❌ خطأ من القناة {event.chat_id}: {e}")
 
-    # ========== اختبار وصول الرسائل ==========
     @user_client.on(events.NewMessage)
     async def test_all_messages(event):
         if event.chat_id in SOURCE_CHATS and not event.out:
@@ -303,7 +384,7 @@ async def main():
 
     print("🚀 شغال...")
     await user_client.start()
-    print("✅ البوت جاهز وينقل الأخبار...")
+    print("✅ البوت جاهز وينقل الأخبار مع العلامة المائية...")
     await user_client.run_until_disconnected()
 
 if __name__ == '__main__':
