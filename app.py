@@ -183,15 +183,15 @@ async def main():
             await event.edit(news_text, parse_mode='markdown')
         await event.answer("📰 تم عرض آخر الأخبار", alert=True)
 
-    # ========== نقل الأخبار من القنوات المصدر (النسخة النهائية) ==========
+    # ========== نقل الأخبار من القنوات المصدر ==========
     @user_client.on(events.NewMessage)
     async def forward_to_bot(event):
         global messages_count, latest_messages
-        
+
         # التأكد من أن الرسالة من قناة مدرجة في القائمة
         if event.chat_id not in SOURCE_CHATS:
             return
-            
+
         try:
             msg_key = f"{event.chat_id}_{event.message.id}"
             if msg_key in sent_cache:
@@ -202,8 +202,6 @@ async def main():
 
             raw_text = event.message.text or event.message.caption or ''
             cleaned = clean_text(raw_text)
-            
-            # إضافة الهاشتاج والمنشن معاً
             final_text = cleaned + HASHTAG + CHANNEL_MENTION if cleaned else HASHTAG + CHANNEL_MENTION
 
             # تخزين آخر الأخبار لعرضها
@@ -218,15 +216,38 @@ async def main():
 
             # ====== معالجة الميديا (صور، فيديوهات) ======
             if event.message.media:
-                # إعادة توجيه الميديا مباشرة بدون تحميل
-                await bot_client.forward_messages(
-                    TARGET_CHAT,
-                    messages=event.message,
-                    from_peer=event.chat_id
-                )
-                # إرسال النص المنظف كرسالة منفصلة مع الهاشتاج والمنشن
-                if final_text:
-                    await bot_client.send_message(TARGET_CHAT, final_text)
+                # إذا كان الخبر يحتوي على ألبوم (Media Group)
+                if event.message.grouped_id:
+                    # جلب جميع رسائل الألبوم
+                    messages = await user_client.get_messages(
+                        event.chat_id,
+                        limit=10,
+                        min_id=event.message.id - 10,
+                        max_id=event.message.id + 10
+                    )
+                    # فلترة رسائل الألبوم فقط
+                    album_messages = [msg for msg in messages if msg.grouped_id == event.message.grouped_id]
+                    
+                    # إعادة توجيه جميع رسائل الألبوم
+                    for msg in album_messages:
+                        await bot_client.forward_messages(
+                            TARGET_CHAT,
+                            messages=msg.id,
+                            from_peer=event.chat_id
+                        )
+                    
+                    # إرسال النص المنظف بعد الصور
+                    if final_text:
+                        await bot_client.send_message(TARGET_CHAT, final_text)
+                else:
+                    # صورة أو فيديو فردي
+                    await bot_client.forward_messages(
+                        TARGET_CHAT,
+                        messages=event.message.id,
+                        from_peer=event.chat_id
+                    )
+                    if final_text:
+                        await bot_client.send_message(TARGET_CHAT, final_text)
             else:
                 # رسالة نصية فقط
                 await bot_client.send_message(TARGET_CHAT, final_text)
