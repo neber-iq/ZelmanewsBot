@@ -31,6 +31,9 @@ SOURCE_CHATS = [
 TARGET_CHAT = -1004368707352
 HASHTAG = '\n\n#جمهورية_الزلم_الاخبارية'
 
+# إضافة المنشن حق القناة
+CHANNEL_MENTION = '\n\n@Zelma_News'
+
 sent_cache = set()
 messages_count = 0
 start_time = datetime.now()
@@ -52,35 +55,35 @@ def clean_text(text):
     if not text:
         return ''
 
-    # 1. حذف جميع أنواع الروابط (حتى .net بدون http)
+    # حذف جميع أنواع الروابط (حتى .net بدون http)
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'www\.\S+', '', text)
     text = re.sub(r'\b[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(/\S*)?', '', text)
     
-    # 2. حذف النطاقات الشهيرة
+    # حذف النطاقات الشهيرة
     text = re.sub(r'\b[a-zA-Z0-9-]+\.(com|net|org|io|tv|me|app|xyz|info|online|site|tech|store|blog|co)\b', '', text)
     
-    # 3. حذف روابط تيليجرام
+    # حذف روابط تيليجرام
     text = re.sub(r't\.me/\S+', '', text)
     text = re.sub(r'telegram\.me/\S+', '', text)
     
-    # 4. حذف الهاشتاجات والمنشنات
+    # حذف الهاشتاجات والمنشنات
     text = re.sub(r'#[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
     text = re.sub(r'@[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
     
-    # 5. 🎯 حذف جملة الاشتراك (وأي نص يشبهها)
+    # حذف جملة الاشتراك (وأي نص يشبهها)
     text = re.sub(r'اشترك الآن في خدمة نجوم الرابعة.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'اشترك الآن.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'للاشتراك.*', '', text, flags=re.IGNORECASE)
     
-    # 6. حذف أي نص يبدأ بـ "من خلال الرابط" أو يحتوي على كلمة "رابط"
+    # حذف أي نص يبدأ بـ "من خلال الرابط" أو يحتوي على كلمة "رابط"
     text = re.sub(r'من خلال الرابط\s*\S*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'عبر الرابط\s*\S*', '', text, flags=re.IGNORECASE)
     
-    # 7. تنظيف المسافات والفواصل الزائدة
+    # تنظيف المسافات والفواصل الزائدة
     text = re.sub(r'\s+', ' ', text).strip()
     
-    # 8. حذف الشرطات الزائدة في بداية أو نهاية النص
+    # حذف الشرطات الزائدة في بداية أو نهاية النص
     text = re.sub(r'^[\s\-—]+', '', text)
     text = re.sub(r'[\s\-—]+$', '', text)
     
@@ -127,8 +130,8 @@ async def main():
         data = event.data.decode('utf-8')
         
         if data == "test_publish":
-            test_message = f"🧪 **رسالة اختبارية**\n\nتم النشر بنجاح ✅\nالوقت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{HASHTAG}"
-            await bot_client.send_message(TARGET_CHAT, test_message, parse_mode='markdown')
+            test_message = f"🧪 **رسالة اختبارية**\n\nتم النشر بنجاح ✅\nالوقت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            await bot_client.send_message(TARGET_CHAT, test_message + HASHTAG + CHANNEL_MENTION, parse_mode='markdown')
             await event.answer("✅ تم إرسال رسالة اختبارية للقناة!", alert=True)
             
         elif data == "latest_news":
@@ -145,10 +148,9 @@ async def main():
                 f"🕐 وقت التشغيل: {hours} ساعة {minutes} دقيقة\n"
                 f"📨 الأخبار المنشورة: **{messages_count}**\n"
                 f"📡 عدد القنوات المصدر: **{len(SOURCE_CHATS)}**\n"
-                f"🎯 القناة الهدف: **جمهورية الزلم الاخبارية**\n\n"
-                f"#جمهورية_الزلم_الاخبارية"
+                f"🎯 القناة الهدف: **جمهورية الزلم الاخبارية**"
             )
-            await event.edit(status_text, parse_mode='markdown')
+            await event.edit(status_text + HASHTAG + CHANNEL_MENTION, parse_mode='markdown')
             await event.answer("📊 تم تحديث الحالة", alert=True)
             
         elif data == "restart_bot":
@@ -157,12 +159,12 @@ async def main():
             messages_count = 0
             start_time = datetime.now()
             latest_messages.clear()
-            await event.edit("🔄 **تم إعادة تشغيل البوت بنجاح!**\n\nتم مسح الذاكرة المؤقتة وإعادة ضبط العداد.", parse_mode='markdown')
+            await event.edit("🔄 **تم إعادة تشغيل البوت بنجاح!**\n\nتم مسح الذاكرة المؤقتة وإعادة ضبط العداد." + HASHTAG + CHANNEL_MENTION, parse_mode='markdown')
 
     # ========== دالة إرسال آخر الأخبار ==========
     async def send_latest_news(event):
         if not latest_messages:
-            await event.edit("📰 **لا توجد أخبار حديثة**\n\nالبوت لم يستقبل أي أخبار جديدة من القنوات المصدر بعد.", parse_mode='markdown')
+            await event.edit("📰 **لا توجد أخبار حديثة**\n\nالبوت لم يستقبل أي أخبار جديدة من القنوات المصدر بعد." + HASHTAG + CHANNEL_MENTION, parse_mode='markdown')
             await event.answer("لا توجد أخبار", alert=True)
             return
         
@@ -173,7 +175,7 @@ async def main():
                 news_text += f"   🔗 [المصدر]({msg['link']})\n"
             news_text += "\n"
         
-        news_text += f"\n#جمهورية_الزلم_الاخبارية"
+        news_text += HASHTAG + CHANNEL_MENTION
         
         if len(news_text) > 4000:
             parts = [news_text[i:i+4000] for i in range(0, len(news_text), 4000)]
@@ -197,7 +199,9 @@ async def main():
 
             raw_text = event.message.text or event.message.caption or ''
             cleaned = clean_text(raw_text)
-            final_text = cleaned + HASHTAG if cleaned else HASHTAG
+            
+            # إضافة الهاشتاج والمنشن معاً
+            final_text = cleaned + HASHTAG + CHANNEL_MENTION if cleaned else HASHTAG + CHANNEL_MENTION
 
             # تخزين آخر الأخبار لعرضها
             if cleaned:
@@ -217,7 +221,7 @@ async def main():
                     messages=event.message,
                     from_peer=event.chat_id
                 )
-                # إرسال النص المنظف كرسالة منفصلة
+                # إرسال النص المنظف كرسالة منفصلة مع الهاشتاج والمنشن
                 if final_text:
                     await bot_client.send_message(TARGET_CHAT, final_text)
             else:
