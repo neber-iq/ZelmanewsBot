@@ -49,15 +49,41 @@ def run_flask():
 # ===========================================
 
 def clean_text(text):
-    if not text: return ''
-    # حذف الروابط (بما فيها اللي بدون http)
-    text = re.sub(r'https?://\S+', '', text)          # روابط تبدأ بـ http
-    text = re.sub(r'www\.\S+', '', text)              # روابط تبدأ بـ www
-    text = re.sub(r'\b[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(/\S*)?', '', text)  # أي رابط مثل domain.com
+    if not text:
+        return ''
+
+    # 1. حذف جميع أنواع الروابط (حتى .net بدون http)
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'www\.\S+', '', text)
+    text = re.sub(r'\b[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(/\S*)?', '', text)
+    
+    # 2. حذف النطاقات الشهيرة
+    text = re.sub(r'\b[a-zA-Z0-9-]+\.(com|net|org|io|tv|me|app|xyz|info|online|site|tech|store|blog|co)\b', '', text)
+    
+    # 3. حذف روابط تيليجرام
     text = re.sub(r't\.me/\S+', '', text)
+    text = re.sub(r'telegram\.me/\S+', '', text)
+    
+    # 4. حذف الهاشتاجات والمنشنات
     text = re.sub(r'#[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
     text = re.sub(r'@[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
+    
+    # 5. 🎯 حذف جملة الاشتراك (وأي نص يشبهها)
+    text = re.sub(r'اشترك الآن في خدمة نجوم الرابعة.*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'اشترك الآن.*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'للاشتراك.*', '', text, flags=re.IGNORECASE)
+    
+    # 6. حذف أي نص يبدأ بـ "من خلال الرابط" أو يحتوي على كلمة "رابط"
+    text = re.sub(r'من خلال الرابط\s*\S*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'عبر الرابط\s*\S*', '', text, flags=re.IGNORECASE)
+    
+    # 7. تنظيف المسافات والفواصل الزائدة
     text = re.sub(r'\s+', ' ', text).strip()
+    
+    # 8. حذف الشرطات الزائدة في بداية أو نهاية النص
+    text = re.sub(r'^[\s\-—]+', '', text)
+    text = re.sub(r'[\s\-—]+$', '', text)
+    
     return text
 
 async def main():
