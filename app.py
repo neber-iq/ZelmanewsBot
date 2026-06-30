@@ -1,0 +1,198 @@
+import asyncio
+import os
+import re
+import io
+from datetime import datetime
+from dotenv import load_dotenv
+from telethon import TelegramClient, events
+from telethon.tl.custom import Button
+
+# تحميل التوكن من متغيرات البيئة (آمن)
+load_dotenv()
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '8991871240:AAFi9vFtAPKMmFhVrg-8Pqos2UjH78b3eA0')
+
+# بيانات الدخول حق حسابك الشخصي
+API_ID = 37953123
+API_HASH = 'a1858aa76f97afdeb67fcf457696b6c3'
+
+# قنوات المصدر (كلها)
+SOURCE_CHATS = [
+    -1001006840823, -1001370990432, -1001033300734, -1002016299106,
+    -1001364992115, -1001680998191, -1001048208601, -1001116498519,
+    -1002159277098, -1001491094605, -1001002129373, -1001002400952,
+    -1001602192088, -1001110380808, -1001822939306, -1001317489146,
+    -1001032666411, -1001336945221, -1001670244580, -1002062736232,
+    -1002189724818, -1001778074725
+]
+
+# قناتك الهدف
+TARGET_CHAT = -1004368707352
+HASHTAG = '\n\n#جمهورية_الزلم_الاخبارية'
+
+sent_cache = set()
+messages_count = 0
+start_time = datetime.now()
+latest_messages = []
+
+def clean_text(text):
+    if not text: return ''
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r't\.me/\S+', '', text)
+    text = re.sub(r'#[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
+    text = re.sub(r'@[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+async def main():
+    global messages_count, start_time, latest_messages
+    
+    # إنشاء العميلين
+    user_client = TelegramClient('user_session', API_ID, API_HASH)
+    bot_client = await TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+
+    # ========== أمر /start ==========
+    @bot_client.on(events.NewMessage(pattern='/start'))
+    async def start_command(event):
+        buttons = [
+            [Button.inline("📨 اختبار النشر", b"test_publish")],
+            [Button.inline("📰 آخر الأخبار", b"latest_news")],
+            [Button.inline("📊 حالة البوت", b"bot_status")],
+            [Button.inline("🔄 إعادة تشغيل", b"restart_bot")],
+            [Button.url("📢 قناتي", "https://t.me/Zelma_News")]
+        ]
+        await event.reply(
+            "🤖 **بوت جمهورية الزلم الإخباري**\n\n"
+            "أهلاً بك! البوت شغال وينقل الأخبار من 22 قناة إلى قناتك.\n\n"
+            "📌 استخدم الأزرار أدناه للتحكم والفحص:",
+            buttons=buttons,
+            parse_mode='markdown'
+        )
+
+    # ========== أمر /latest ==========
+    @bot_client.on(events.NewMessage(pattern='/latest'))
+    async def latest_command(event):
+        await send_latest_news(event)
+
+    # ========== معالجة أزرار البوت ==========
+    @bot_client.on(events.CallbackQuery)
+    async def callback_handler(event):
+        global messages_count, start_time, latest_messages
+        
+        data = event.data.decode('utf-8')
+        
+        if data == "test_publish":
+            test_message = f"🧪 **رسالة اختبارية**\n\nتم النشر بنجاح ✅\nالوقت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{HASHTAG}"
+            await bot_client.send_message(TARGET_CHAT, test_message, parse_mode='markdown')
+            await event.answer("✅ تم إرسال رسالة اختبارية للقناة!", alert=True)
+            
+        elif data == "latest_news":
+            await send_latest_news(event)
+            
+        elif data == "bot_status":
+            uptime = datetime.now() - start_time
+            hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+            minutes, seconds = divmod(remainder, 60)
+            
+            status_text = (
+                f"📊 **حالة البوت**\n\n"
+                f"✅ الحالة: **شغال**\n"
+                f"🕐 وقت التشغيل: {hours} ساعة {minutes} دقيقة\n"
+                f"📨 الأخبار المنشورة: **{messages_count}**\n"
+                f"📡 عدد القنوات المصدر: **{len(SOURCE_CHATS)}**\n"
+                f"🎯 القناة الهدف: **جمهورية الزلم الاخبارية**\n\n"
+                f"#جمهورية_الزلم_الاخبارية"
+            )
+            await event.edit(status_text, parse_mode='markdown')
+            await event.answer("📊 تم تحديث الحالة", alert=True)
+            
+        elif data == "restart_bot":
+            await event.answer("🔄 جاري إعادة التشغيل...", alert=True)
+            sent_cache.clear()
+            messages_count = 0
+            start_time = datetime.now()
+            latest_messages.clear()
+            await event.edit("🔄 **تم إعادة تشغيل البوت بنجاح!**\n\nتم مسح الذاكرة المؤقتة وإعادة ضبط العداد.", parse_mode='markdown')
+
+    # ========== دالة إرسال آخر الأخبار ==========
+    async def send_latest_news(event):
+        if not latest_messages:
+            await event.edit("📰 **لا توجد أخبار حديثة**\n\nالبوت لم يستقبل أي أخبار جديدة من القنوات المصدر بعد.", parse_mode='markdown')
+            await event.answer("لا توجد أخبار", alert=True)
+            return
+        
+        news_text = "📰 **آخر الأخبار المنشورة**\n\n"
+        for i, msg in enumerate(latest_messages[-5:], 1):
+            news_text += f"{i}. {msg['text']}\n"
+            if msg.get('link'):
+                news_text += f"   🔗 [المصدر]({msg['link']})\n"
+            news_text += "\n"
+        
+        news_text += f"\n#جمهورية_الزلم_الاخبارية"
+        
+        if len(news_text) > 4000:
+            parts = [news_text[i:i+4000] for i in range(0, len(news_text), 4000)]
+            for part in parts:
+                await event.reply(part, parse_mode='markdown')
+        else:
+            await event.edit(news_text, parse_mode='markdown')
+        await event.answer("📰 تم عرض آخر الأخبار", alert=True)
+
+    # ========== نقل الأخبار من القنوات المصدر ==========
+    @user_client.on(events.NewMessage(chats=SOURCE_CHATS))
+    async def forward_to_bot(event):
+        global messages_count, latest_messages
+        try:
+            msg_key = f"{event.chat_id}_{event.message.id}"
+            if msg_key in sent_cache:
+                return
+            sent_cache.add(msg_key)
+            if len(sent_cache) > 300:
+                sent_cache.pop()
+
+            raw_text = event.message.text or event.message.caption or ''
+            cleaned = clean_text(raw_text)
+            final_text = cleaned + HASHTAG if cleaned else HASHTAG
+
+            # تخزين آخر الأخبار لعرضها
+            if cleaned:
+                news_entry = {
+                    'text': cleaned[:200] + ('...' if len(cleaned) > 200 else ''),
+                    'link': f"https://t.me/c/{str(event.chat_id)[4:]}/{event.message.id}" if event.chat_id else None
+                }
+                latest_messages.append(news_entry)
+                if len(latest_messages) > 20:
+                    latest_messages.pop(0)
+
+            if event.message.media:
+                file_bytes = io.BytesIO()
+                await user_client.download_media(event.message, file=file_bytes)
+                file_bytes.seek(0)
+                await bot_client.send_file(
+                    TARGET_CHAT,
+                    file_bytes,
+                    caption=final_text,
+                    force_document=False
+                )
+            else:
+                await bot_client.send_message(TARGET_CHAT, final_text)
+
+            messages_count += 1
+            print(f"✅ تم النشر من: {event.chat_id}")
+
+        except Exception as e:
+            print(f"❌ خطأ: {e}")
+
+    # ========== اختبار وصول الرسائل ==========
+    @user_client.on(events.NewMessage)
+    async def test(event):
+        print(f"📩 واصلتني رسالة من: {event.chat_id}")
+
+    print("🚀 شغال...")
+    await user_client.start()
+    print("✅ البوت جاهز وينقل الأخبار...")
+    print("💡 أرسل /start للبوت @Zelma_News_Bot عشان تظهر الأزرار")
+    print("💡 أرسل /latest عشان تشوف آخر الأخبار المستلمة")
+    await user_client.run_until_disconnected()
+
+if __name__ == '__main__':
+    asyncio.run(main())
