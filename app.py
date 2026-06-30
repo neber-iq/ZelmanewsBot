@@ -34,21 +34,31 @@ TARGET_CHAT = -1004368707352
 HASHTAG = '\n\n#جمهورية_الزلم_الاخبارية'
 CHANNEL_MENTION = '\n\n@Zelma_News'
 
-# ========== نظام منع التكرار ==========
+# ========== نظام منع التكرار المتقدم (يحفظ في ملف JSON) ==========
 CACHE_FILE = 'sent_cache.json'
+MAX_CACHE_SIZE = 500  # حفظ آخر 500 خبر فقط
 
 def load_cache():
     try:
-        with open(CACHE_FILE, 'r') as f:
-            return set(json.load(f))
-    except:
+        with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return set(data)
+            return set()
+    except (FileNotFoundError, json.JSONDecodeError):
         return set()
 
 def save_cache(cache):
-    with open(CACHE_FILE, 'w') as f:
-        json.dump(list(cache), f)
+    try:
+        # تحويل set إلى list قبل الحفظ
+        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(list(cache), f, ensure_ascii=False)
+    except Exception as e:
+        print(f"⚠️ خطأ في حفظ الكاش: {e}")
 
+# تحميل الكاش عند بدء التشغيل
 sent_cache = load_cache()
+print(f"📂 تم تحميل {len(sent_cache)} خبر من الكاش")
 # =========================================
 
 messages_count = 0
@@ -89,7 +99,7 @@ def clean_text(text):
     return text
 
 async def main():
-    global messages_count, start_time, latest_messages
+    global messages_count, start_time, latest_messages, sent_cache
     
     threading.Thread(target=run_flask, daemon=True).start()
     
@@ -185,13 +195,13 @@ async def main():
     # ========== معالج الألبومات (مجموعات الصور) ==========
     @user_client.on(events.Album)
     async def handle_album(event):
-        global messages_count, latest_messages
+        global messages_count, latest_messages, sent_cache
         
         if event.chat_id not in SOURCE_CHATS:
             return
             
         try:
-            album_key = f"{event.chat_id}_{event.messages[0].id}"
+            album_key = f"album_{event.chat_id}_{event.messages[0].id}"
             if album_key in sent_cache:
                 return
             sent_cache.add(album_key)
@@ -201,7 +211,6 @@ async def main():
             cleaned = clean_text(caption)
             final_text = cleaned + HASHTAG + CHANNEL_MENTION if cleaned else HASHTAG + CHANNEL_MENTION
 
-            # تحميل الألبوم كملف مؤقت ثم إرساله
             await bot_client.send_file(
                 TARGET_CHAT,
                 file=event.messages,
@@ -214,10 +223,10 @@ async def main():
         except Exception as e:
             print(f"❌ خطأ في الألبوم: {e}")
 
-    # ========== معالج الرسائل العادية (فقط من القنوات المصدر) ==========
+    # ========== معالج الرسائل العادية ==========
     @user_client.on(events.NewMessage)
     async def forward_to_bot(event):
-        global messages_count, latest_messages
+        global messages_count, latest_messages, sent_cache
 
         if event.out:
             return
@@ -250,7 +259,6 @@ async def main():
                     latest_messages.pop(0)
 
             if event.message.media:
-                # الحل النهائي للميديا: تحميل وإعادة إرسال
                 try:
                     file_path = await event.message.download_media()
                     if file_path:
@@ -262,7 +270,6 @@ async def main():
                         if os.path.exists(file_path):
                             os.remove(file_path)
                     else:
-                        # إذا فشل التحميل، نحاول إعادة التوجيه
                         await bot_client.forward_messages(
                             TARGET_CHAT,
                             messages=event.message.id,
@@ -272,7 +279,6 @@ async def main():
                             await bot_client.send_message(TARGET_CHAT, final_text)
                 except Exception as e:
                     print(f"❌ خطأ في تحميل الميديا: {e}")
-                    # محاولة إعادة التوجيه كحل أخير
                     await bot_client.forward_messages(
                         TARGET_CHAT,
                         messages=event.message.id,
