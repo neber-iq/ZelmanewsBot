@@ -11,8 +11,6 @@ import threading
 import json
 import requests
 from PIL import Image
-import cv2
-import numpy as np
 
 # تحميل التوكن من متغيرات البيئة (آمن)
 load_dotenv()
@@ -26,8 +24,10 @@ API_HASH = 'a1858aa76f97afdeb67fcf457696b6c3'
 SOURCE_CHATS = [
     -1001006840823, -1001370990432, -1001033300734, -1002016299106,
     -1001364992115, -1001680998191, -1001048208601, -1001116498519,
-    -1002159277098, -1001491094605, -1001002129373, -1001002400952,
-    -1001602192088, -1001110380808, -1001822939306, -1001317489146,
+    -1002159277098, -1001491094605, -1001002129373,
+    # -1001002400952,  # تم حذفها
+    # -1001602192088,  # تم حذفها
+    -1001110380808, -1001822939306, -1001317489146,
     -1001032666411, -1001336945221, -1001670244580, -1002062736232,
     -1002189724818, -1001778074725,
     -1001765747111
@@ -96,7 +96,7 @@ def clean_text(text):
     text = re.sub(r'[\s\-—]+$', '', text)
     return text
 
-# ========== تحميل العلامة المائية من الرابط ==========
+# ========== تحميل العلامة المائية ==========
 def download_watermark(url):
     try:
         response = requests.get(url, timeout=10)
@@ -110,22 +110,19 @@ def download_watermark(url):
         print(f"⚠️ خطأ في تحميل العلامة المائية: {e}")
         return None
 
-# ========== دالة إضافة العلامة المائية ==========
+# ========== إضافة العلامة المائية ==========
 def add_watermark_to_image(image_path, output_path, watermark_path):
     try:
         base_img = Image.open(image_path).convert("RGBA")
         watermark = Image.open(watermark_path).convert("RGBA")
         
-        # تغيير حجم العلامة المائية (20% من الصورة الأصلية)
         width, height = base_img.size
         wm_width = int(width * 0.15)
         wm_height = int(watermark.height * (wm_width / watermark.width))
         watermark = watermark.resize((wm_width, wm_height), Image.LANCZOS)
         
-        # موقع العلامة (أسفل اليمين)
         position = (width - wm_width - 20, height - wm_height - 20)
         
-        # دمج الصور
         transparent = Image.new('RGBA', base_img.size, (0, 0, 0, 0))
         transparent.paste(base_img, (0, 0))
         transparent.paste(watermark, position, watermark)
@@ -139,13 +136,11 @@ def add_watermark_to_image(image_path, output_path, watermark_path):
 # ========== معالجة الميديا ==========
 async def process_media(event, final_text):
     try:
-        # تحميل العلامة المائية
         watermark_path = download_watermark(WATERMARK_IMAGE_URL)
         if not watermark_path:
             print("⚠️ فشل تحميل العلامة المائية")
             return None
         
-        # تحميل الميديا الأصلية
         file_path = await event.message.download_media()
         if not file_path:
             return None
@@ -153,15 +148,12 @@ async def process_media(event, final_text):
         file_ext = os.path.splitext(file_path)[1].lower()
         output_path = f"watermarked_{os.path.basename(file_path)}"
         
-        # معالجة الصور فقط (الفيديو يحتاج ffmpeg)
         if file_ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff']:
             success = add_watermark_to_image(file_path, output_path, watermark_path)
         else:
-            # للفيديو نرسله بدون علامة (أو نضيفها لاحقاً)
             os.rename(file_path, output_path)
             success = True
         
-        # حذف الملف الأصلي
         if os.path.exists(file_path):
             os.remove(file_path)
         if os.path.exists(watermark_path):
@@ -174,7 +166,6 @@ async def process_media(event, final_text):
         print(f"⚠️ خطأ في معالجة الميديا: {e}")
         return None
 
-# ========== باقي الكود (الأوامر، الألبومات، إلخ) ==========
 async def main():
     global messages_count, start_time, latest_messages, sent_cache
     
@@ -183,7 +174,6 @@ async def main():
     user_client = TelegramClient('user_session', API_ID, API_HASH)
     bot_client = await TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-    # أوامر البوت (كما هي)
     @bot_client.on(events.NewMessage(pattern='/start'))
     async def start_command(event):
         buttons = [
@@ -267,7 +257,6 @@ async def main():
             await event.edit(news_text, parse_mode='markdown')
         await event.answer("📰 تم عرض آخر الأخبار", alert=True)
 
-    # معالج الألبومات
     @user_client.on(events.Album)
     async def handle_album(event):
         global messages_count, latest_messages, sent_cache
@@ -276,6 +265,10 @@ async def main():
             return
             
         try:
+            # تجاهل القنوات المحذوفة
+            if event.chat_id in [-1001002400952, -1001602192088]:
+                return
+                
             album_key = f"album_{event.chat_id}_{event.messages[0].id}"
             if album_key in sent_cache:
                 return
@@ -315,7 +308,6 @@ async def main():
         except Exception as e:
             print(f"❌ خطأ في الألبوم: {e}")
 
-    # معالج الرسائل العادية
     @user_client.on(events.NewMessage)
     async def forward_to_bot(event):
         global messages_count, latest_messages, sent_cache
@@ -327,6 +319,10 @@ async def main():
             return
 
         if event.chat_id not in SOURCE_CHATS:
+            return
+
+        # تجاهل القنوات المحذوفة
+        if event.chat_id in [-1001002400952, -1001602192088]:
             return
 
         try:
