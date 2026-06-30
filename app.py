@@ -30,8 +30,6 @@ SOURCE_CHATS = [
 # قناتك الهدف
 TARGET_CHAT = -1004368707352
 HASHTAG = '\n\n#جمهورية_الزلم_الاخبارية'
-
-# إضافة المنشن حق القناة
 CHANNEL_MENTION = '\n\n@Zelma_News'
 
 sent_cache = set()
@@ -185,10 +183,15 @@ async def main():
             await event.edit(news_text, parse_mode='markdown')
         await event.answer("📰 تم عرض آخر الأخبار", alert=True)
 
-    # ========== نقل الأخبار من القنوات المصدر ==========
-    @user_client.on(events.NewMessage(chats=SOURCE_CHATS))
+    # ========== نقل الأخبار من القنوات المصدر (النسخة النهائية) ==========
+    @user_client.on(events.NewMessage)
     async def forward_to_bot(event):
         global messages_count, latest_messages
+        
+        # التأكد من أن الرسالة من قناة مدرجة في القائمة
+        if event.chat_id not in SOURCE_CHATS:
+            return
+            
         try:
             msg_key = f"{event.chat_id}_{event.message.id}"
             if msg_key in sent_cache:
@@ -232,12 +235,16 @@ async def main():
             print(f"✅ تم النشر من: {event.chat_id}")
 
         except Exception as e:
-            print(f"❌ خطأ: {e}")
+            print(f"❌ خطأ من القناة {event.chat_id}: {e}")
 
-    # ========== اختبار وصول الرسائل ==========
+    # ========== اختبار وصول الرسائل من جميع القنوات ==========
     @user_client.on(events.NewMessage)
-    async def test(event):
-        print(f"📩 واصلتني رسالة من: {event.chat_id}")
+    async def test_all_messages(event):
+        # طباعة أي رسالة تصل من أي قناة (للتشخيص)
+        if event.chat_id in SOURCE_CHATS:
+            print(f"📩 واصلتني رسالة من قناة مصدر: {event.chat_id}")
+        else:
+            print(f"📩 واصلتني رسالة من قناة أخرى: {event.chat_id}")
 
     print("🚀 شغال...")
     await user_client.start()
