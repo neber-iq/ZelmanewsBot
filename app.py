@@ -80,22 +80,34 @@ def run_flask():
 def clean_text(text):
     if not text:
         return ''
+    
+    # حذف جميع أنواع الروابط
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'www\.\S+', '', text)
     text = re.sub(r'\b[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(/\S*)?', '', text)
     text = re.sub(r'\b[a-zA-Z0-9-]+\.(com|net|org|io|tv|me|app|xyz|info|online|site|tech|store|blog|co)\b', '', text)
     text = re.sub(r't\.me/\S+', '', text)
     text = re.sub(r'telegram\.me/\S+', '', text)
+    
+    # حذف الهاشتاجات والمنشنات
     text = re.sub(r'#[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
     text = re.sub(r'@[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
+    
+    # 🎯 حذف جميع عبارات الاشتراك والإعلانات
     text = re.sub(r'اشترك الآن في خدمة نجوم الرابعة.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'اشترك الآن.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'للاشتراك.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'من خلال الرابط\s*\S*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'عبر الرابط\s*\S*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'لتحميل تطبيقات وكالة الانباء العراقية.*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'تحميل تطبيقات وكالة الانباء العراقية.*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'وكالة الانباء العراقية.*', '', text, flags=re.IGNORECASE)
+    
+    # تنظيف المسافات والفواصل الزائدة
     text = re.sub(r'\s+', ' ', text).strip()
     text = re.sub(r'^[\s\-—]+', '', text)
     text = re.sub(r'[\s\-—]+$', '', text)
+    
     return text
 
 def get_text_hash(text):
