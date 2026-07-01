@@ -82,19 +82,14 @@ def clean_text(text):
     if not text:
         return ''
     
-    # حذف جميع أنواع الروابط
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'www\.\S+', '', text)
     text = re.sub(r'\b[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(/\S*)?', '', text)
     text = re.sub(r'\b[a-zA-Z0-9-]+\.(com|net|org|io|tv|me|app|xyz|info|online|site|tech|store|blog|co)\b', '', text)
     text = re.sub(r't\.me/\S+', '', text)
     text = re.sub(r'telegram\.me/\S+', '', text)
-    
-    # حذف الهاشتاجات والمنشنات
     text = re.sub(r'#[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
     text = re.sub(r'@[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
-    
-    # حذف جميع عبارات الاشتراك والإعلانات
     text = re.sub(r'اشترك الآن في خدمة نجوم الرابعة.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'اشترك الآن.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'للاشتراك.*', '', text, flags=re.IGNORECASE)
@@ -103,8 +98,6 @@ def clean_text(text):
     text = re.sub(r'لتحميل تطبيقات وكالة الانباء العراقية.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'تحميل تطبيقات وكالة الانباء العراقية.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'وكالة الانباء العراقية.*', '', text, flags=re.IGNORECASE)
-    
-    # تنظيف المسافات والفواصل الزائدة
     text = re.sub(r'\s+', ' ', text).strip()
     text = re.sub(r'^[\s\-—]+', '', text)
     text = re.sub(r'[\s\-—]+$', '', text)
@@ -112,13 +105,11 @@ def clean_text(text):
     return text
 
 def get_text_hash(text):
-    """إنشاء هاش للنص لمنع التكرار"""
     if not text:
         return None
     cleaned = re.sub(r'\s+', ' ', text).strip()
     return hashlib.md5(cleaned.encode('utf-8')).hexdigest()
 
-# ========== تحميل العلامة المائية ==========
 def download_watermark(url):
     try:
         response = requests.get(url, timeout=10)
@@ -132,7 +123,6 @@ def download_watermark(url):
         print(f"⚠️ خطأ في تحميل العلامة المائية: {e}")
         return None
 
-# ========== إضافة العلامة المائية ==========
 def add_watermark_to_image(image_path, output_path, watermark_path):
     try:
         base_img = Image.open(image_path).convert("RGBA")
@@ -155,7 +145,6 @@ def add_watermark_to_image(image_path, output_path, watermark_path):
         print(f"⚠️ خطأ في إضافة العلامة المائية: {e}")
         return False
 
-# ========== معالجة الميديا ==========
 async def process_media(event, final_text):
     try:
         watermark_path = download_watermark(WATERMARK_IMAGE_URL)
@@ -192,10 +181,8 @@ async def main():
     
     threading.Thread(target=run_flask, daemon=True).start()
     
-    # ================== استخدام جلسة واحدة ==================
     user_client = TelegramClient('new_session', API_ID, API_HASH)
-    bot_client = TelegramClient('new_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
-    # ========================================================
+    bot_client = await TelegramClient('new_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
     @bot_client.on(events.NewMessage(pattern='/start'))
     async def start_command(event):
