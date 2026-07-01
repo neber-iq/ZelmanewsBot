@@ -192,8 +192,8 @@ async def main():
     
     threading.Thread(target=run_flask, daemon=True).start()
     
-    # ====== استخدام الجلسة الخاصة بالبوت ======
-    user_client = TelegramClient('bot_session', API_ID, API_HASH)
+    # ====== استخدام الجلسة الجديدة ======
+    user_client = TelegramClient('new_session', API_ID, API_HASH)
     bot_client = await TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
     # ========== أوامر البوت ==========
