@@ -31,7 +31,8 @@ SOURCE_CHATS = [
     -1002189724818, -1001778074725,
     -1001765747111,
     -1003613542415,
-    -1001429963311
+    -1001429963311,
+    -1001613270320
 ]
 
 # قناتك الهدف
@@ -93,7 +94,7 @@ def clean_text(text):
     text = re.sub(r'#[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
     text = re.sub(r'@[\u0600-\u06FFa-zA-Z0-9_]+', '', text)
     
-    # 🎯 حذف جميع عبارات الاشتراك والإعلانات
+    # حذف جميع عبارات الاشتراك والإعلانات
     text = re.sub(r'اشترك الآن في خدمة نجوم الرابعة.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'اشترك الآن.*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'للاشتراك.*', '', text, flags=re.IGNORECASE)
@@ -191,7 +192,8 @@ async def main():
     
     threading.Thread(target=run_flask, daemon=True).start()
     
-    user_client = TelegramClient('user_session', API_ID, API_HASH)
+    # ====== استخدام الجلسة الخاصة بالبوت ======
+    user_client = TelegramClient('bot_session', API_ID, API_HASH)
     bot_client = await TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
     # ========== أوامر البوت ==========
@@ -424,6 +426,7 @@ async def main():
 
     print("🚀 شغال...")
     await user_client.start()
+    await bot_client.start()
     print("✅ البوت جاهز وينقل الأخبار مع العلامة المائية...")
     await user_client.run_until_disconnected()
 
